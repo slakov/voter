@@ -1,0 +1,624 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Co-evolutionary Voter Model on a Random Intersection Graph</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow-x: hidden;
+            scroll-behavior: smooth;
+        }
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .chart-container {
+            position: relative;
+            height: 250px;
+            width: 100%;
+        }
+        /* Animation for highlighting nodes/links */
+        .node-highlight {
+            transition: fill 0.1s ease-in-out;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <div class="container mx-auto p-4 md:p-6">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Co-evolutionary Voter Model</h1>
+            <p class="text-md text-gray-600 mt-2">A simulation of opinion dynamics on an evolving network with community structure.</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-2xl shadow-lg mb-6">
+            <h2 class="text-2xl font-bold mb-3">Model Description</h2>
+            <div class="text-gray-700 space-y-2">
+                <p>This simulation models the co-evolution of opinions and social structure. The network is a <strong>Random Intersection Graph</strong>, where individuals are connected if they share membership in one or more groups. The initial network density is derived from the dynamic rates to ensure the simulation starts near its expected equilibrium.</p>
+                <p>Three distinct processes occur simultaneously, governed by a Gillespie algorithm:</p>
+                <ul class="list-disc list-inside pl-4 space-y-1">
+                    <li><strong>Opinion Dynamics (Rate &gamma;):</strong> An individual copies the opinion of a randomly chosen neighbour. This drives the system towards local consensus.</li>
+                    <li><strong>Network Formation (Rate &alpha;):</strong> An individual randomly joins a new group, creating new potential social links.</li>
+                    <li><strong>Network Dissolution (Rate &beta;):</strong> An individual-to-group link is randomly deleted, representing an individual leaving a group.</li>
+                </ul>
+                <p class="mt-4">For a detailed mathematical description, <a href="#detailed-model-description" class="text-blue-600 hover:underline">see the model specification below</a>.</p>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Controls and Stats Panel -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-2xl shadow-lg">
+                <h2 class="text-2xl font-bold mb-4 border-b pb-2">Controls</h2>
+
+                <!-- Parameters -->
+                <div class="space-y-4">
+                    <div>
+                        <label for="n_slider" class="slider-label font-medium">Individuals (n): <span id="n_value" class="font-bold text-blue-600">80</span></label>
+                        <input type="range" id="n_slider" min="20" max="150" value="80" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="m_slider" class="slider-label font-medium">Groups (m): <span id="m_value" class="font-bold text-blue-600">5</span></label>
+                        <input type="range" id="m_slider" min="1" max="50" value="5" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="gamma_slider" class="slider-label font-medium">Opinion Rate (&gamma;): <span id="gamma_value" class="font-bold text-blue-600">1.0</span></label>
+                        <input type="range" id="gamma_slider" min="0.1" max="10" step="0.1" value="1.0" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="alpha_slider" class="slider-label font-medium">Group Joining Rate (&alpha;): <span id="alpha_value" class="font-bold text-blue-600">0.3</span></label>
+                        <input type="range" id="alpha_slider" min="0" max="5" step="0.1" value="0.3" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                     <div>
+                        <label for="beta_slider" class="slider-label font-medium">Group Leaving Rate (&beta;): <span id="beta_value" class="font-bold text-blue-600">0.1</span></label>
+                        <input type="range" id="beta_slider" min="0" max="5" step="0.1" value="0.1" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                    <div>
+                        <label for="opinion_slider" class="slider-label font-medium">Initial Opinion +1: <span id="opinion_value" class="font-bold text-blue-600">50%</span></label>
+                        <input type="range" id="opinion_slider" min="0" max="100" value="50" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer">
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex flex-col space-y-3 mt-6">
+                    <button id="setup_button" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 transition-all shadow-md">Setup & Run</button>
+                    <div class="flex space-x-3">
+                       <button id="pause_button" class="w-full bg-yellow-500 text-white font-bold py-2 px-4 rounded-lg hover:bg-yellow-600 transition-colors shadow-md" disabled>Pause</button>
+                       <button id="reset_button" class="w-full bg-red-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-red-700 transition-colors shadow-md" disabled>Reset</button>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div id="stats_panel" class="mt-6 pt-4 border-t space-y-3 hidden">
+                    <h3 class="text-xl font-bold">Live Statistics</h3>
+                    <div class="text-sm space-y-2">
+                        <p class="flex justify-between">Time Elapsed: <span id="time_stat" class="font-mono font-semibold">0.00</span></p>
+                        <p class="flex justify-between items-center">Opinion +1: <span id="plus_one_stat" class="font-mono font-semibold px-2 py-0.5 bg-blue-100 text-blue-800 rounded">0</span></p>
+                        <p class="flex justify-between items-center">Opinion -1: <span id="minus_one_stat" class="font-mono font-semibold px-2 py-0.5 bg-red-100 text-red-800 rounded">0</span></p>
+                        <p class="flex justify-between items-center">Consensus: <span id="consensus_stat" class="font-semibold text-gray-500">None</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Visualization and Chart -->
+            <div class="lg:col-span-3 bg-white p-4 rounded-2xl shadow-lg flex flex-col">
+                 <h3 class="text-xl font-bold text-center mb-2">Auxiliary Bipartite Graph</h3>
+                <div id="visualization" class="flex-grow w-full h-96 md:h-[500px] border rounded-lg bg-gray-50 relative">
+                     <div id="placeholder" class="absolute inset-0 flex items-center justify-center text-gray-500 text-lg">
+                        Adjust parameters and click "Setup & Run" to begin.
+                    </div>
+                </div>
+                <div class="chart-container mt-4">
+                    <canvas id="opinion_chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Detailed Model Description Section -->
+        <div id="detailed-model-description" class="bg-white p-6 rounded-2xl shadow-lg mt-6">
+            <h2 class="text-2xl font-bold mb-3">Formal Model Specification</h2>
+            <div class="text-gray-700 space-y-4 prose prose-blue max-w-none">
+                <h4>1. The State Space</h4>
+                <p>The state of the system at time <i>t</i> is a tuple (<b>&sigma;</b>(<i>t</i>), <i>E<sub>B</sub></i>(<i>t</i>)), where:</p>
+                <ul>
+                    <li><b>&sigma;</b>(<i>t</i>) = (&sigma;<sub>1</sub>, &sigma;<sub>2</sub>, ..., &sigma;<sub>n</sub>) is the vector of opinions for the <i>n</i> individuals in the set <i>V</i>. Each opinion &sigma;<sub>i</sub> &in; {-1, +1}.</li>
+                    <li><i>E<sub>B</sub></i>(<i>t</i>) is the set of edges in the auxiliary bipartite graph connecting the set of individuals <i>V</i> to the set of <i>m</i> groups <i>G</i>. An edge (<i>i</i>, <i>g</i>) &in; <i>E<sub>B</sub></i>(<i>t</i>) signifies that individual <i>i</i> is a member of group <i>g</i> at time <i>t</i>.</li>
+                </ul>
+                <p>From <i>E<sub>B</sub></i>(<i>t</i>), we derive the Random Intersection Graph <i>G<sub>RIG</sub></i>(<i>t</i>) on the vertex set <i>V</i>. An edge (<i>i</i>, <i>j</i>) exists in <i>G<sub>RIG</sub></i>(<i>t</i>) if and only if there is at least one group <i>g</i> &in; <i>G</i> such that (<i>i</i>, <i>g</i>) &in; <i>E<sub>B</sub></i>(<i>t</i>) and (<i>j</i>, <i>g</i>) &in; <i>E<sub>B</sub></i>(<i>t</i>). The set of neighbours of vertex <i>i</i> in this graph is denoted &Nscr;(<i>i</i>, <i>t</i>).</p>
+
+                <h4>2. The Co-evolutionary Process</h4>
+                <p>The system evolves as a continuous-time Markov process. The total rate of any event occurring is <i>R<sub>total</sub></i> = <i>R<sub>&gamma;</sub></i> + <i>R<sub>&alpha;</sub></i> + <i>R<sub>&beta;</sub></i>. The time until the next event, &Delta;<i>t</i>, is drawn from an exponential distribution with rate <i>R<sub>total</sub></i>. An event is then chosen with probability proportional to its rate.</p>
+
+                <h4>3. Event Rates</h4>
+                <p>The rates for the three types of events are defined as follows:</p>
+                <ul>
+                    <li>
+                        <strong>Opinion Dynamics (Voter Model):</strong> The total rate of opinion changes is <i>R<sub>&gamma;</sub></i>. An individual <i>i</i> flips its opinion from &sigma;<sub>i</sub> to -&sigma;<sub>i</sub> at a rate proportional to the number of its neighbours with the opposite opinion. The total rate is the sum of rates over all discordant edges <i>E<sub>d</sub></i>(<i>t</i>) in the RIG, where <i>E<sub>d</sub></i>(<i>t</i>) = {(<i>i</i>, <i>j</i>) &in; <i>G<sub>RIG</sub></i>(<i>t</i>) | &sigma;<sub>i</sub> &ne; &sigma;<sub>j</sub>}.
+                        <br>
+                        <code class="block bg-gray-100 p-2 rounded mt-1">R<sub>&gamma;</sub> = &gamma; &middot; |<i>E<sub>d</sub></i>(<i>t</i>)|</code>
+                    </li>
+                    <li>
+                        <strong>Network Formation (Group Joining):</strong> The total rate of new link formation is <i>R<sub>&alpha;</sub></i>. Each of the <i>n</i> individuals attempts to form a new link to a randomly chosen group at a rate of &alpha;.
+                        <br>
+                        <code class="block bg-gray-100 p-2 rounded mt-1">R<sub>&alpha;</sub> = &alpha; &middot; <i>n</i></code>
+                    </li>
+                    <li>
+                        <strong>Network Dissolution (Group Leaving):</strong> The total rate of link deletion is <i>R<sub>&beta;</sub></i>. Each existing link (<i>i</i>, <i>g</i>) in the bipartite graph is deleted at a rate of &beta;.
+                        <br>
+                        <code class="block bg-gray-100 p-2 rounded mt-1">R<sub>&beta;</sub> = &beta; &middot; |<i>E<sub>B</sub></i>(<i>t</i>)|</code>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const nSlider = document.getElementById('n_slider');
+        const mSlider = document.getElementById('m_slider');
+        const gammaSlider = document.getElementById('gamma_slider');
+        const alphaSlider = document.getElementById('alpha_slider');
+        const betaSlider = document.getElementById('beta_slider');
+        const opinionSlider = document.getElementById('opinion_slider');
+
+        const nValue = document.getElementById('n_value');
+        const mValue = document.getElementById('m_value');
+        const gammaValue = document.getElementById('gamma_value');
+        const alphaValue = document.getElementById('alpha_value');
+        const betaValue = document.getElementById('beta_value');
+        const opinionValue = document.getElementById('opinion_value');
+
+        const setupButton = document.getElementById('setup_button');
+        const pauseButton = document.getElementById('pause_button');
+        const resetButton = document.getElementById('reset_button');
+
+        const statsPanel = document.getElementById('stats_panel');
+        const timeStat = document.getElementById('time_stat');
+        const plusOneStat = document.getElementById('plus_one_stat');
+        const minusOneStat = document.getElementById('minus_one_stat');
+        const consensusStat = document.getElementById('consensus_stat');
+        
+        const visualizationDiv = document.getElementById('visualization');
+        const placeholder = document.getElementById('placeholder');
+
+        // --- Simulation State & Configuration ---
+        const sim = {
+            nodes: [],
+            individualNodes: [],
+            groupNodes: [],
+            rigLinks: [],
+            bipartiteLinks: [],
+            groupMemberships: new Map(),
+            time: 0,
+            isRunning: false,
+            animationFrameId: null,
+            params: {},
+            d3: {
+                simulation: null,
+                svg: null,
+                nodeSelection: null,
+                linkSelection: null,
+            },
+            chart: null,
+            // --- Colors ---
+            OPINION_COLORS: {
+                '+1': '#2563eb', // blue-600
+                '-1': '#dc2626'  // red-600
+            },
+            GROUP_COLOR: '#6b7280', // gray-500
+            HIGHLIGHT_COLOR: '#facc15', // yellow-400
+        };
+
+        // --- Event Listeners for Sliders ---
+        nSlider.addEventListener('input', (e) => nValue.textContent = e.target.value);
+        mSlider.addEventListener('input', (e) => mValue.textContent = e.target.value);
+        gammaSlider.addEventListener('input', (e) => gammaValue.textContent = parseFloat(e.target.value).toFixed(1));
+        alphaSlider.addEventListener('input', (e) => alphaValue.textContent = parseFloat(e.target.value).toFixed(1));
+        betaSlider.addEventListener('input', (e) => betaValue.textContent = parseFloat(e.target.value).toFixed(1));
+        opinionSlider.addEventListener('input', (e) => opinionValue.textContent = `${e.target.value}%`);
+
+        // --- Event Listeners for Buttons ---
+        setupButton.addEventListener('click', setupAndRun);
+        pauseButton.addEventListener('click', togglePause);
+        resetButton.addEventListener('click', resetSimulation);
+
+        // --- Helper: Poisson Random Variable ---
+        function poissonRandom(lambda) {
+            if (lambda <= 0) return 0;
+            const L = Math.exp(-lambda);
+            let p = 1.0;
+            let k = 0;
+            do {
+                k++;
+                p *= Math.random();
+            } while (p > L);
+            return k - 1;
+        }
+
+        // --- Graph Generation ---
+        function setupGraph() {
+            // 1. Get parameters from sliders
+            const n = parseInt(nSlider.value);
+            const m = parseInt(mSlider.value);
+            const initialOpinionRatio = parseInt(opinionSlider.value) / 100;
+            const alpha = parseFloat(alphaSlider.value);
+            const beta = parseFloat(betaSlider.value);
+
+            sim.params = { 
+                n, m, 
+                gamma: parseFloat(gammaSlider.value),
+                alpha: alpha,
+                beta: beta
+            };
+
+            // 2. Create nodes for both types
+            sim.individualNodes = Array.from({ length: n }, (_, i) => ({
+                id: `ind_${i}`,
+                type: 'individual',
+                opinion: Math.random() < initialOpinionRatio ? 1 : -1
+            }));
+            sim.groupNodes = Array.from({ length: m }, (_, i) => ({
+                id: `grp_${i}`,
+                type: 'group'
+            }));
+            sim.nodes = [...sim.individualNodes, ...sim.groupNodes];
+
+            // 3. Create auxiliary bipartite graph structure and links
+            // The initial average number of memberships is derived from the dynamic rates
+            const lambda_initial = (beta > 0) ? (alpha / beta) : 3.0; // Default to 3 if beta is 0
+
+            sim.groupMemberships.clear();
+            sim.bipartiteLinks = [];
+            for (let i = 0; i < n; i++) {
+                const individualId = `ind_${i}`;
+                const memberships = new Set();
+                const numGroups = poissonRandom(lambda_initial);
+                for (let k = 0; k < numGroups; k++) {
+                    const groupId = `grp_${Math.floor(Math.random() * m)}`;
+                    memberships.add(groupId);
+                }
+                sim.groupMemberships.set(individualId, memberships);
+                
+                memberships.forEach(groupId => {
+                    sim.bipartiteLinks.push({ source: individualId, target: groupId });
+                });
+            }
+            recalculateRigLinks();
+        }
+        
+        function recalculateRigLinks() {
+            sim.rigLinks = [];
+            const n = sim.params.n;
+            for (let i = 0; i < n; i++) {
+                for (let j = i + 1; j < n; j++) {
+                    const iId = `ind_${i}`;
+                    const jId = `ind_${j}`;
+                    const iGroups = sim.groupMemberships.get(iId) || new Set();
+                    const jGroups = sim.groupMemberships.get(jId) || new Set();
+                    
+                    const intersection = new Set([...iGroups].filter(x => jGroups.has(x)));
+                    if (intersection.size > 0) {
+                        sim.rigLinks.push({ 
+                            source: sim.individualNodes[i], 
+                            target: sim.individualNodes[j] 
+                        });
+                    }
+                }
+            }
+        }
+
+        // --- D3 Visualization ---
+        function setupD3() {
+            visualizationDiv.innerHTML = ''; 
+            const width = visualizationDiv.clientWidth;
+            const height = visualizationDiv.clientHeight;
+
+            sim.d3.svg = d3.select("#visualization").append("svg")
+                .attr("width", width)
+                .attr("height", height)
+                .attr("viewBox", [-width / 2, -height / 2, width, height]);
+            
+            sim.d3.svg.append("g").attr("class", "links");
+            sim.d3.svg.append("g").attr("class", "nodes");
+
+            sim.d3.simulation = d3.forceSimulation()
+                .force("link", d3.forceLink().id(d => d.id).strength(0.1))
+                .force("charge", d3.forceManyBody().strength(-30))
+                .force("x", d3.forceX(d => d.type === 'individual' ? -width/4 : width/4).strength(0.5))
+                .force("y", d3.forceY(0).strength(0.05));
+
+            sim.d3.simulation.on("tick", () => {
+                if (sim.d3.linkSelection) {
+                    sim.d3.linkSelection
+                        .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
+                        .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
+                }
+                if (sim.d3.nodeSelection) {
+                    sim.d3.nodeSelection
+                        .attr("transform", d => `translate(${d.x},${d.y})`);
+                }
+            });
+            
+            updateD3Data();
+        }
+
+        function updateD3Data() {
+            if (!sim.d3.svg) return;
+
+            // Update links
+            sim.d3.linkSelection = sim.d3.svg.select(".links").selectAll("line")
+                .data(sim.bipartiteLinks, d => `${d.source.id || d.source}-${d.target.id || d.target}`);
+            
+            sim.d3.linkSelection.exit().remove();
+            sim.d3.linkSelection = sim.d3.linkSelection.enter().append("line")
+                .attr("stroke", "#999")
+                .attr("stroke-opacity", 0.4)
+                .attr("class", "link-highlight")
+                .merge(sim.d3.linkSelection);
+
+            // Update nodes
+            sim.d3.nodeSelection = sim.d3.svg.select(".nodes").selectAll("path")
+                .data(sim.nodes, d => d.id);
+            
+            sim.d3.nodeSelection.exit().remove();
+            sim.d3.nodeSelection = sim.d3.nodeSelection.enter().append("path")
+                .attr("d", d3.symbol().type(d => d.type === 'individual' ? d3.symbolCircle : d3.symbolSquare).size(d => d.type === 'individual' ? 64 : 80))
+                .attr("class", "node-highlight")
+                .call(d3.drag()
+                    .on("start", dragstarted)
+                    .on("drag", dragged)
+                    .on("end", dragended))
+                .merge(sim.d3.nodeSelection);
+            
+            // Update color for all nodes
+            sim.d3.nodeSelection
+                .attr("fill", d => {
+                    if (d.type === 'group') return sim.GROUP_COLOR;
+                    return d.opinion === 1 ? sim.OPINION_COLORS['+1'] : sim.OPINION_COLORS['-1'];
+                });
+
+            sim.d3.simulation.nodes(sim.nodes);
+            sim.d3.simulation.force("link").links(sim.bipartiteLinks);
+            sim.d3.simulation.alpha(0.3).restart();
+
+            function dragstarted(event, d) {
+                if (!event.active) sim.d3.simulation.alphaTarget(0.3).restart();
+                d.fx = d.x; d.fy = d.y;
+            }
+            function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+            function dragended(event, d) {
+                if (!event.active) sim.d3.simulation.alphaTarget(0);
+                d.fx = null; d.fy = null;
+            }
+        }
+
+
+        // --- Chart.js Visualization ---
+        function setupChart() {
+            const ctx = document.getElementById('opinion_chart').getContext('2d');
+            if(sim.chart) sim.chart.destroy();
+            sim.chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [0],
+                    datasets: [{
+                        label: 'Proportion of Opinion +1',
+                        data: [calculateOpinionProportion()],
+                        borderColor: sim.OPINION_COLORS['+1'],
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        fill: true,
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { type: 'linear', title: { display: true, text: 'Time' } },
+                        y: { min: 0, max: 1, title: { display: true, text: 'Proportion' } }
+                    },
+                    animation: { duration: 0 }
+                }
+            });
+        }
+
+        function updateChart(time, proportion) {
+            if (sim.chart.data.labels.length > 500) {
+                sim.chart.data.labels.shift();
+                sim.chart.data.datasets[0].data.shift();
+            }
+            sim.chart.data.labels.push(time.toFixed(2));
+            sim.chart.data.datasets[0].data.push(proportion);
+            sim.chart.update();
+        }
+
+        // --- Simulation Core ---
+        function setupAndRun() {
+            if(sim.animationFrameId) cancelAnimationFrame(sim.animationFrameId);
+            
+            // Provide user feedback for setup
+            setupButton.textContent = "Working...";
+            setupButton.disabled = true;
+
+            // Use a timeout to allow the UI to update before the heavy computation
+            setTimeout(() => {
+                placeholder.classList.add('hidden');
+                statsPanel.classList.remove('hidden');
+                setupGraph();
+                setupD3();
+                setupChart();
+                sim.time = 0;
+                sim.isRunning = true;
+                updateUIState(true);
+                simulationLoop();
+                setupButton.textContent = "Setup & Run"; // Restore text after setup
+            }, 50);
+        }
+        
+        function simulationLoop() {
+            if (!sim.isRunning) return;
+
+            // Find discordant RIG edges for opinion updates
+            const discordantEdges = sim.rigLinks.filter(link => link.source.opinion !== link.target.opinion);
+            
+            updateStats();
+
+            // Check for consensus as the primary stopping condition
+            if (discordantEdges.length === 0 && sim.individualNodes.length > 0) {
+                const plusOneCount = sim.individualNodes.filter(n => n.opinion === 1).length;
+                if (plusOneCount === sim.individualNodes.length || plusOneCount === 0) {
+                    const consensusOpinion = sim.individualNodes[0]?.opinion;
+                    consensusStat.textContent = consensusOpinion === 1 ? '+1 (Blue)' : '-1 (Red)';
+                    consensusStat.style.color = consensusOpinion === 1 ? sim.OPINION_COLORS['+1'] : sim.OPINION_COLORS['-1'];
+                    sim.isRunning = false;
+                    updateUIState(false);
+                    return; // Stop the simulation
+                }
+            }
+            
+            const rateOpinionUpdate = discordantEdges.length * sim.params.gamma;
+            const rateLinkDelete = sim.bipartiteLinks.length * sim.params.beta;
+            const rateLinkCreate = sim.params.n * sim.params.alpha;
+            const totalRate = rateOpinionUpdate + rateLinkDelete + rateLinkCreate;
+
+
+            if (totalRate === 0) {
+                consensusStat.textContent = 'Stagnated';
+                sim.isRunning = false;
+                updateUIState(false);
+                return;
+            }
+
+            // Gillespie algorithm step
+            const dt = -Math.log(Math.random()) / totalRate;
+            sim.time += dt;
+
+            const eventType = Math.random() * totalRate;
+
+            if (eventType < rateOpinionUpdate) {
+                // --- Opinion Update Event ---
+                const edgeToUpdate = discordantEdges[Math.floor(Math.random() * discordantEdges.length)];
+                const oldOpinion = edgeToUpdate.source.opinion;
+                const newOpinion = edgeToUpdate.target.opinion;
+
+                if (Math.random() < 0.5) {
+                    edgeToUpdate.source.opinion = newOpinion;
+                    highlightNode(edgeToUpdate.source.id, newOpinion);
+                } else {
+                    edgeToUpdate.target.opinion = oldOpinion;
+                    highlightNode(edgeToUpdate.target.id, oldOpinion);
+                }
+
+            } else if (eventType < rateOpinionUpdate + rateLinkDelete) {
+                // --- Link Deletion Event ---
+                if (sim.bipartiteLinks.length > 0) {
+                    const linkIndexToDelete = Math.floor(Math.random() * sim.bipartiteLinks.length);
+                    const deletedLink = sim.bipartiteLinks.splice(linkIndexToDelete, 1)[0];
+                    
+                    const indId = deletedLink.source.id || deletedLink.source;
+                    const grpId = deletedLink.target.id || deletedLink.target;
+                    
+                    sim.groupMemberships.get(indId).delete(grpId);
+                    
+                    recalculateRigLinks();
+                    updateD3Data(); // Full redraw needed as links change
+                    highlightNode(indId);
+                    highlightNode(grpId);
+                }
+            } else {
+                // --- Link Creation Event ---
+                const indIndex = Math.floor(Math.random() * sim.params.n);
+                const grpIndex = Math.floor(Math.random() * sim.params.m);
+                const indId = `ind_${indIndex}`;
+                const grpId = `grp_${grpIndex}`;
+
+                const memberships = sim.groupMemberships.get(indId);
+                if (memberships && !memberships.has(grpId)) {
+                    memberships.add(grpId);
+                    sim.bipartiteLinks.push({ source: indId, target: grpId });
+                    recalculateRigLinks();
+                    updateD3Data(); // Full redraw needed
+                    highlightNode(indId);
+                    highlightNode(grpId);
+                }
+            }
+
+            updateChart(sim.time, calculateOpinionProportion());
+            sim.animationFrameId = requestAnimationFrame(simulationLoop);
+        }
+
+        function highlightNode(nodeId, opinion) {
+            const node = sim.d3.nodeSelection.filter(d => d.id === nodeId);
+            if (node.empty()) return;
+
+            const originalColor = node.datum().type === 'group' 
+                ? sim.GROUP_COLOR 
+                : (opinion ?? node.datum().opinion) === 1 ? sim.OPINION_COLORS['+1'] : sim.OPINION_COLORS['-1'];
+            
+            node.attr('fill', sim.HIGHLIGHT_COLOR);
+            setTimeout(() => {
+                node.attr('fill', originalColor);
+            }, 200);
+        }
+
+        function calculateOpinionProportion() {
+            const plusOneCount = sim.individualNodes.filter(n => n.opinion === 1).length;
+            return sim.individualNodes.length > 0 ? plusOneCount / sim.individualNodes.length : 0;
+        }
+
+        function updateStats() {
+            const plusOneCount = sim.individualNodes.filter(n => n.opinion === 1).length;
+            const minusOneCount = sim.individualNodes.length - plusOneCount;
+            timeStat.textContent = sim.time.toFixed(2);
+            plusOneStat.textContent = plusOneCount;
+            minusOneStat.textContent = minusOneCount;
+        }
+
+        // --- UI Control Functions ---
+        function togglePause() {
+            sim.isRunning = !sim.isRunning;
+            pauseButton.textContent = sim.isRunning ? 'Pause' : 'Resume';
+            pauseButton.classList.toggle('bg-yellow-500', sim.isRunning);
+            pauseButton.classList.toggle('hover:bg-yellow-600', sim.isRunning);
+            pauseButton.classList.toggle('bg-green-500', !sim.isRunning);
+            pauseButton.classList.toggle('hover:bg-green-600', !sim.isRunning);
+            if (sim.isRunning) simulationLoop();
+        }
+        
+        function resetSimulation() {
+            if (sim.animationFrameId) cancelAnimationFrame(sim.animationFrameId);
+            sim.isRunning = false;
+            if(sim.d3.simulation) sim.d3.simulation.stop();
+            visualizationDiv.innerHTML = '';
+            placeholder.classList.remove('hidden');
+            statsPanel.classList.add('hidden');
+            consensusStat.textContent = 'None';
+            consensusStat.style.color = 'inherit';
+            if(sim.chart) sim.chart.destroy();
+            updateUIState(false);
+        }
+
+        function updateUIState(isRunning) {
+            setupButton.disabled = isRunning;
+            pauseButton.disabled = !isRunning;
+            resetButton.disabled = !isRunning;
+            [nSlider, mSlider, gammaSlider, alphaSlider, betaSlider, opinionSlider].forEach(s => s.disabled = isRunning);
+            if (isRunning) {
+                 pauseButton.textContent = 'Pause';
+                 pauseButton.classList.remove('bg-green-500', 'hover:bg-green-600');
+                 pauseButton.classList.add('bg-yellow-500', 'hover:bg-yellow-600');
+            }
+        }
+    </script>
+</body>
+</html>
