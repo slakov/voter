@@ -47,7 +47,7 @@
                 <p>Three distinct processes occur simultaneously, governed by a Gillespie algorithm:</p>
                 <ul class="list-disc list-inside pl-4 space-y-1">
                     <li><strong>Opinion Dynamics (Rate &gamma;):</strong> An individual copies the opinion of a randomly chosen neighbour. This drives the system towards local consensus.</li>
-                    <li><strong>Network Formation (Rate &alpha;):</strong> A randomly chosen group gains a new member, creating new potential social links.</li>
+                    <li><strong>Network Formation (Rate &alpha;):</strong> Each individual attempts to join each group at rate &alpha;.</li>
                     <li><strong>Network Dissolution (Rate &beta;):</strong> An individual-to-group link is randomly deleted, representing an individual leaving a group.</li>
                 </ul>
                 <p class="mt-4">For a detailed mathematical description, <a href="#detailed-model-description" class="text-blue-600 hover:underline">see the model specification below</a>.</p>
@@ -146,9 +146,9 @@
                         <code class="block bg-gray-100 p-2 rounded mt-1">R<sub>&gamma;</sub> = &gamma; &middot; |<i>E<sub>d</sub></i>(<i>t</i>)|</code>
                     </li>
                     <li>
-                        <strong>Network Formation (Group Joining):</strong> The total rate of new link formation is <i>R<sub>&alpha;</sub></i>. Each of the <i>m</i> groups attempts to gain a new member at a rate of &alpha;.
+                        <strong>Network Formation (Group Joining):</strong> The total rate of new link formation is <i>R<sub>&alpha;</sub></i>. Each of the <i>n \times m</i> individual-group pairs attempts to form a link at rate &alpha;.
                         <br>
-                        <code class="block bg-gray-100 p-2 rounded mt-1">R<sub>&alpha;</sub> = &alpha; &middot; <i>m</i></code>
+                        <code class="block bg-gray-100 p-2 rounded mt-1">R<sub>&alpha;</sub> = &alpha; &middot; <i>n</i> &middot; <i>m</i></code>
                     </li>
                     <li>
                         <strong>Network Dissolution (Group Leaving):</strong> The total rate of link deletion is <i>R<sub>&beta;</sub></i>. Each existing link (<i>i</i>, <i>g</i>) in the bipartite graph is deleted at a rate of &beta;.
@@ -272,26 +272,21 @@
             sim.nodes = [...sim.individualNodes, ...sim.groupNodes];
 
             // 3. Create auxiliary bipartite graph structure and links
-            // The initial average number of memberships per individual is derived from the dynamic rates
-            // At equilibrium: α * m = β * |E_B|, so |E_B| = (α * m) / β
-            // Average memberships per individual = |E_B| / n = (α * m) / (β * n)
-            const avgMembershipsPerIndividual = (beta > 0) ? (alpha * m) / (beta * n) : 3.0; // Default to 3 if beta is 0
-
+            // Each individual is a member of each group independently with probability alpha/(alpha+beta)
+            const joinProb = (alpha + beta) > 0 ? (alpha / (alpha + beta)) : 0;
             sim.groupMemberships.clear();
             sim.bipartiteLinks = [];
             for (let i = 0; i < n; i++) {
                 const individualId = `ind_${i}`;
                 const memberships = new Set();
-                const numGroups = poissonRandom(avgMembershipsPerIndividual);
-                for (let k = 0; k < numGroups; k++) {
-                    const groupId = `grp_${Math.floor(Math.random() * m)}`;
-                    memberships.add(groupId);
+                for (let j = 0; j < m; j++) {
+                    const groupId = `grp_${j}`;
+                    if (Math.random() < joinProb) {
+                        memberships.add(groupId);
+                        sim.bipartiteLinks.push({ source: individualId, target: groupId });
+                    }
                 }
                 sim.groupMemberships.set(individualId, memberships);
-                
-                memberships.forEach(groupId => {
-                    sim.bipartiteLinks.push({ source: individualId, target: groupId });
-                });
             }
             recalculateRigLinks();
         }
@@ -490,7 +485,7 @@
             
             const rateOpinionUpdate = discordantEdges.length * sim.params.gamma;
             const rateLinkDelete = sim.bipartiteLinks.length * sim.params.beta;
-            const rateLinkCreate = sim.params.m * sim.params.alpha; // FIXED: α is per-group rate
+            const rateLinkCreate = sim.params.n * sim.params.m * sim.params.alpha; // α is per individual-group pair
             const totalRate = rateOpinionUpdate + rateLinkDelete + rateLinkCreate;
 
 
@@ -539,20 +534,24 @@
                 }
             } else {
                 // --- Link Creation Event ---
-                // FIXED: Choose a random group to gain a new member
-                const grpIndex = Math.floor(Math.random() * sim.params.m);
-                const grpId = `grp_${grpIndex}`;
-                
-                // Choose a random individual who is not already a member of this group
-                const availableIndividuals = sim.individualNodes.filter(ind => {
-                    const memberships = sim.groupMemberships.get(ind.id);
-                    return !memberships.has(grpId);
-                });
-                
-                if (availableIndividuals.length > 0) {
-                    const randomIndividual = availableIndividuals[Math.floor(Math.random() * availableIndividuals.length)];
-                    const indId = randomIndividual.id;
-                    
+                // Choose a random individual-group pair that is not already linked
+                const n = sim.params.n;
+                const m = sim.params.m;
+                let tries = 0;
+                let found = false;
+                let indId, grpId;
+                while (tries < 10 && !found) {
+                    const i = Math.floor(Math.random() * n);
+                    const j = Math.floor(Math.random() * m);
+                    indId = `ind_${i}`;
+                    grpId = `grp_${j}`;
+                    const memberships = sim.groupMemberships.get(indId);
+                    if (!memberships.has(grpId)) {
+                        found = true;
+                    }
+                    tries++;
+                }
+                if (found) {
                     sim.groupMemberships.get(indId).add(grpId);
                     sim.bipartiteLinks.push({ source: indId, target: grpId });
                     recalculateRigLinks();
